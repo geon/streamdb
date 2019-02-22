@@ -1,0 +1,29 @@
+{
+  "name": "streamdb",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "example": "ts-node src/example",
+    "test": "tape --require ts-node/register \"test/**/*.ts\" | tap-spec"
+  },
+  "author": "Victor Widell",
+  "license": "MIT",
+  "prettier": {
+    "useTabs": true,
+    "trailingComma": "all"
+  },
+  "devDependencies": {
+    "@types/node": "^10.0.4",
+    "@types/tape": "^4.2.32",
+    "prettier": "^1.14.3",
+    "tap-spec": "^5.0.0",
+    "tape": "^4.9.1",
+    "ts-node": "^5.0.1",
+    "tslint": "^5.9.1",
+    "tslint-immutable": "^4.5.4",
+    "tslint-microsoft-contrib": "^5.0.3",
+    "typescript": "^3.1.1"
+  },
+  "dependencies": {}
+}
