@@ -45,7 +45,9 @@ interface ChatMessageEvent {
 }
 
 type DbEvent =
-	| SetUserPropertyEvent<SettableUserPropertyName>
+	| SetUserPropertyEvent<"name">
+	| SetUserPropertyEvent<"email">
+	| SetUserPropertyEvent<"birthDate">
 	| ChatMessageEvent;
 
 function reduce(state: State, event: DbEvent): State {
