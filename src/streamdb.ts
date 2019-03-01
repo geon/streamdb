@@ -1,23 +1,22 @@
-import { makeManualAsyncGeneratorAdapter } from "./makeAsyncGeneratorAdapter";
-
-type OutputStreamGenerator<TState, TEvent, TOutputEvent> = (
-	inputStream: AsyncIterableIterator<{
-		readonly state: TState;
-		readonly event: TEvent;
-		readonly oldState: TState;
-	}>,
-) => AsyncIterableIterator<TOutputEvent>;
+import {
+	makeManualAsyncGeneratorAdapter,
+	AsyncTerminator,
+} from "./makeAsyncGeneratorAdapter";
 
 export function reduce<TState, TEvent, TOutputStreamGenerators extends {}>(
 	inputStream: AsyncIterableIterator<TEvent>,
 	initialState: TState,
-	reduce: (state: TState, event: TEvent) => TState,
-	outputStreamGenerators: {
-		[streamName in keyof TOutputStreamGenerators]: OutputStreamGenerator<
-			TState,
-			TEvent,
-			TOutputStreamGenerators[streamName]
-		>
+	reduce: (
+		state: TState,
+		event: TEvent,
+		streams: {
+			[streamName in keyof TOutputStreamGenerators]: AsyncTerminator<
+				TOutputStreamGenerators[streamName]
+			>
+		},
+	) => Promise<TState>,
+	outputStreamGeneratorNamesInKeys: {
+		[streamName in keyof TOutputStreamGenerators]: undefined
 	},
 	_persistenceStrategy: any,
 ): {
@@ -28,44 +27,40 @@ export function reduce<TState, TEvent, TOutputStreamGenerators extends {}>(
 	};
 } {
 	const streamsArray = ((Array.from(
-		Object.entries(outputStreamGenerators),
+		Object.keys(outputStreamGeneratorNamesInKeys),
 	) as unknown) as ReadonlyArray<
-		[
-			keyof typeof outputStreamGenerators,
-			OutputStreamGenerator<
-				TState,
-				TEvent,
-				TOutputStreamGenerators[keyof typeof outputStreamGenerators]
-			>
-		]
-	>).map(([streamName, streamGenerator]) => {
-		const {
-			asyncTerminator,
-			asyncGenerator,
-		} = makeManualAsyncGeneratorAdapter<{
-			readonly state: TState;
-			readonly event: TEvent;
-			readonly oldState: TState;
-		}>();
-
-		const stream = streamGenerator(asyncGenerator);
+		keyof typeof outputStreamGeneratorNamesInKeys
+	>).map(streamName => {
+		const { asyncTerminator, asyncGenerator } = makeManualAsyncGeneratorAdapter<
+			TOutputStreamGenerators[typeof streamName]
+		>();
 
 		return {
 			streamName,
-			stream,
+			stream: asyncGenerator,
 			asyncTerminator,
 		};
 	});
+
+	const terminators = streamsArray.reduce<
+		{
+			[streamName in keyof TOutputStreamGenerators]: AsyncTerminator<
+				TOutputStreamGenerators[streamName]
+			>
+		}
+	>(
+		(soFar, current) => {
+			soFar[current.streamName] = current.asyncTerminator;
+			return soFar;
+		},
+		{} as any,
+	);
 
 	(async () => {
 		try {
 			let state = initialState;
 			for await (const event of inputStream) {
-				const oldState = state;
-				state = reduce(state, event);
-				for (const stream of streamsArray) {
-					await stream.asyncTerminator.next({ state, event, oldState });
-				}
+				state = await reduce(state, event, terminators);
 			}
 
 			for (const stream of streamsArray) {

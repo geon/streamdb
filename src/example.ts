@@ -1,5 +1,8 @@
 import * as StreamDb from "./streamdb";
-import { makeAsyncGeneratorAdapter } from "./makeAsyncGeneratorAdapter";
+import {
+	makeAsyncGeneratorAdapter,
+	AsyncTerminator,
+} from "./makeAsyncGeneratorAdapter";
 
 function exhaustiveCheck(_: never) {}
 
@@ -50,7 +53,25 @@ type DbEvent =
 	| SetUserPropertyEvent<"birthDate">
 	| ChatMessageEvent;
 
-function reduce(state: State, event: DbEvent): State {
+interface NameChangeEvent {
+	readonly newName: string;
+	readonly oldName?: string;
+}
+
+interface ChatLineEvent {
+	readonly message: string;
+	readonly name: string;
+	readonly aka: ReadonlyArray<string>;
+}
+
+async function reduce(
+	state: State,
+	event: DbEvent,
+	streams: {
+		readonly nameChanges: AsyncTerminator<NameChangeEvent>;
+		readonly chatLines: AsyncTerminator<ChatLineEvent>;
+	},
+): Promise<State> {
 	const eventCounter = state.eventCounter + 1;
 	let oldUserNames = state.oldUserNames;
 
@@ -64,6 +85,14 @@ function reduce(state: State, event: DbEvent): State {
 			};
 
 			const user = state.users[event.userId] || defaultUser;
+
+			if (event.propertyName === "name") {
+				const oldUser = state.users[event.userId];
+				await streams.nameChanges.next({
+					newName: event.value,
+					oldName: oldUser && oldUser.name,
+				});
+			}
 
 			return {
 				...state,
@@ -89,51 +118,22 @@ function reduce(state: State, event: DbEvent): State {
 		}
 
 		case "chat message": {
+			const user = state.users[event.userId];
+			if (!user) {
+				throw new Error("User does not exist: " + event.userId);
+			}
+			await streams.chatLines.next({
+				message: event.message,
+				name: user.name,
+				aka: state.oldUserNames[event.userId] || [],
+			});
+
 			return state;
 		}
 
 		default:
 			exhaustiveCheck(event);
 			return state;
-	}
-}
-
-async function* nameChanges(
-	stream: AsyncIterableIterator<{
-		readonly state: State;
-		readonly event: DbEvent;
-		readonly oldState: State;
-	}>,
-) {
-	for await (const { event, oldState } of stream) {
-		if (event.type === "set user property" && event.propertyName === "name") {
-			const oldUser = oldState.users[event.userId];
-			yield {
-				newName: event.value,
-				oldName: oldUser && oldUser.name,
-			};
-		}
-	}
-}
-
-async function* chatLines(
-	stream: AsyncIterableIterator<{
-		readonly event: DbEvent;
-		readonly state: State;
-	}>,
-) {
-	for await (const { event, state } of stream) {
-		if (event.type === "chat message") {
-			const user = state.users[event.userId];
-			if (!user) {
-				throw new Error("User does not exist: " + event.userId);
-			}
-			yield {
-				message: event.message,
-				name: user.name,
-				aka: state.oldUserNames[event.userId],
-			};
-		}
 	}
 }
 
@@ -179,7 +179,7 @@ const db = StreamDb.reduce(
 	asyncGenerator,
 	initialState,
 	reduce,
-	{ nameChanges, chatLines },
+	{ nameChanges: undefined, chatLines: undefined },
 	persistenceStrategy,
 );
 

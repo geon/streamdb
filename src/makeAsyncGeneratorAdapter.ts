@@ -20,7 +20,7 @@ function makePromiseAndCallbacks<T>(): PromiseAndCallbacks<T> {
 	};
 }
 
-interface AsyncTerminator<T> {
+export interface AsyncTerminator<T> {
 	readonly next: (data: T) => Promise<void>;
 	readonly throw: (error: Error) => void;
 	readonly done: () => void;
