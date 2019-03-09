@@ -1,4 +1,4 @@
-import * as StreamDb from "./streamdb";
+import { StreamDb } from "./streamdb";
 import {
 	makeAsyncGeneratorAdapter,
 	AsyncTerminator,
@@ -175,7 +175,7 @@ const initialState: State = {
 	oldUserNames: {},
 };
 
-const db = StreamDb.reduce(
+const db = new StreamDb(
 	asyncGenerator,
 	initialState,
 	reduce,
@@ -184,13 +184,13 @@ const db = StreamDb.reduce(
 );
 
 (async () => {
-	for await (const nameChange of db.streams.nameChanges) {
+	for await (const nameChange of db.getStream("nameChanges")) {
 		console.log(nameChange);
 	}
 })();
 
 (async () => {
-	for await (const chatLine of db.streams.chatLines) {
+	for await (const chatLine of db.getStream("chatLines")) {
 		console.log(chatLine);
 	}
 })();
