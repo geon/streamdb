@@ -2,12 +2,13 @@ import {
 	makeManualAsyncGeneratorAdapter,
 	AsyncTerminator,
 } from "./makeAsyncGeneratorAdapter";
+import { PubSub } from "./pubsub";
 
 export class StreamDb<TState, TEvent, TOutputStreamGenerators extends {}> {
-	private outputTerminators!: {
+	private pubSubs!: {
 		// tslint:disable-next-line: readonly-array
-		[streamName in keyof TOutputStreamGenerators]: Array<
-			AsyncTerminator<TOutputStreamGenerators[streamName]>
+		[streamName in keyof TOutputStreamGenerators]: PubSub<
+			TOutputStreamGenerators[streamName]
 		>
 	};
 
@@ -61,47 +62,20 @@ export class StreamDb<TState, TEvent, TOutputStreamGenerators extends {}> {
 			{} as any,
 		);
 
-		this.outputTerminators = reducerStreams.reduce<
+		this.pubSubs = reducerStreams.reduce<
 			{
 				// tslint:disable-next-line: readonly-array
-				[streamName in keyof TOutputStreamGenerators]: Array<
-					AsyncTerminator<TOutputStreamGenerators[streamName]>
+				[streamName in keyof TOutputStreamGenerators]: PubSub<
+					TOutputStreamGenerators[streamName]
 				>
 			}
-		>((soFar, current) => ({ ...soFar, [current.streamName]: [] }), {} as any);
-
-		// For each stream name...
-		for (const reducerStream of reducerStreams) {
-			// ...kick off a worker...
-			(async () => {
-				try {
-					// ...taking the events produced by the reducer...
-					for await (const event of reducerStream.stream) {
-						// ...and distributing it among the subscribers.
-						await Promise.all(
-							this.outputTerminators[reducerStream.streamName].map(
-								outputTerminator => outputTerminator.next(event),
-							),
-						);
-					}
-
-					// When the stream from the reducer has ended, end the subscribers as well.
-					for (const outputTerminator of this.outputTerminators[
-						reducerStream.streamName
-					]) {
-						outputTerminator.done();
-					}
-				} catch (error) {
-					console.log("Throwing inside subscription");
-
-					for (const outputTerminator of this.outputTerminators[
-						reducerStream.streamName
-					]) {
-						outputTerminator.throw(error);
-					}
-				}
-			})();
-		}
+		>(
+			(soFar, current) => ({
+				...soFar,
+				[current.streamName]: new PubSub(current.stream),
+			}),
+			{} as any,
+		);
 
 		(async () => {
 			try {
@@ -125,12 +99,6 @@ export class StreamDb<TState, TEvent, TOutputStreamGenerators extends {}> {
 	subscribe<TStreamName extends keyof TOutputStreamGenerators>(
 		streamName: TStreamName,
 	): AsyncIterableIterator<TOutputStreamGenerators[TStreamName]> {
-		const { asyncTerminator, asyncGenerator } = makeManualAsyncGeneratorAdapter<
-			TOutputStreamGenerators[TStreamName]
-		>();
-
-		this.outputTerminators[streamName].push(asyncTerminator);
-
-		return asyncGenerator;
+		return this.pubSubs[streamName].subscribe();
 	}
 }
