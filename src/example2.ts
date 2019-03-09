@@ -25,13 +25,13 @@ const db = new StreamDb(
 );
 
 (async () => {
-	for await (const counter of db.getStream("counter")) {
+	for await (const counter of db.subscribe("counter")) {
 		console.log("From beginning", counter);
 	}
 })();
 
 setTimeout(async () => {
-	for await (const counter of db.getStream("counter")) {
+	for await (const counter of db.subscribe("counter")) {
 		console.log("Subscribed later", counter);
 	}
 }, 2000);

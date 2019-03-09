@@ -184,13 +184,13 @@ const db = new StreamDb(
 );
 
 (async () => {
-	for await (const nameChange of db.getStream("nameChanges")) {
+	for await (const nameChange of db.subscribe("nameChanges")) {
 		console.log(nameChange);
 	}
 })();
 
 (async () => {
-	for await (const chatLine of db.getStream("chatLines")) {
+	for await (const chatLine of db.subscribe("chatLines")) {
 		console.log(chatLine);
 	}
 })();
