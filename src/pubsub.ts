@@ -6,6 +6,7 @@ import {
 export class PubSub<TEvent> {
 	// tslint:disable-next-line: readonly-array
 	private outputTerminators: Array<AsyncTerminator<TEvent>> = [];
+	private done = false;
 
 	constructor(inputStream: AsyncIterableIterator<TEvent>) {
 		// Kick off a worker distributing events to the subscribers.
@@ -23,6 +24,8 @@ export class PubSub<TEvent> {
 				for (const outputTerminator of this.outputTerminators) {
 					outputTerminator.done();
 				}
+
+				this.done = true;
 			} catch (error) {
 				console.log("Throwing inside subscription");
 
@@ -38,7 +41,11 @@ export class PubSub<TEvent> {
 			TEvent
 		>();
 
-		this.outputTerminators.push(asyncTerminator);
+		if (this.done) {
+			asyncTerminator.done();
+		} else {
+			this.outputTerminators.push(asyncTerminator);
+		}
 
 		return asyncGenerator;
 	}
