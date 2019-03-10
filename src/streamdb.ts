@@ -34,10 +34,7 @@ export class StreamDb<TState, TEventIn, TEventOut> {
 		);
 	}
 
-	subscribe(): {
-		readonly currentState: TState;
-		readonly events: AsyncIterableIterator<TEventOut>;
-	} {
+	subscribe() {
 		return { currentState: this.currentState, events: this.pubSub.subscribe() };
 	}
 }
