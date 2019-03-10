@@ -11,27 +11,27 @@ const asyncGenerator = makeAsyncGeneratorAdapter<number>(
 );
 
 const db = new StreamDb(
-	asyncGenerator,
 	0,
-	async (state, _event, streams) => {
-		const counter = state + 1;
-
-		await streams.counter.next(counter);
-
-		return counter;
+	asyncGenerator,
+	function(state, _event) {
+		let counter = state + 1;
+		return { state: counter, event: counter };
 	},
-	{ counter: undefined },
 	() => {},
 );
 
 (async () => {
-	for await (const counter of db.subscribe("counter")) {
+	const { currentState, events } = db.subscribe();
+	console.log("Subscribing when current state is:", currentState);
+	for await (const counter of events) {
 		console.log("From beginning", counter);
 	}
 })();
 
 setTimeout(async () => {
-	for await (const counter of db.subscribe("counter")) {
+	const { currentState, events } = db.subscribe();
+	console.log("Subscribing when current state is:", currentState);
+	for await (const counter of events) {
 		console.log("Subscribed later", counter);
 	}
 }, 2000);

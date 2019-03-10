@@ -1,8 +1,5 @@
 import { StreamDb } from "./streamdb";
-import {
-	makeAsyncGeneratorAdapter,
-	AsyncTerminator,
-} from "./makeAsyncGeneratorAdapter";
+import { makeAsyncGeneratorAdapter } from "./makeAsyncGeneratorAdapter";
 
 function exhaustiveCheck(_: never) {}
 
@@ -54,24 +51,25 @@ type DbEvent =
 	| ChatMessageEvent;
 
 interface NameChangeEvent {
+	readonly type: "nameChange";
 	readonly newName: string;
 	readonly oldName?: string;
 }
 
 interface ChatLineEvent {
+	readonly type: "chatLine";
 	readonly message: string;
 	readonly name: string;
 	readonly aka: ReadonlyArray<string>;
 }
 
-async function reduce(
+function reduce(
 	state: State,
 	event: DbEvent,
-	streams: {
-		readonly nameChanges: AsyncTerminator<NameChangeEvent>;
-		readonly chatLines: AsyncTerminator<ChatLineEvent>;
-	},
-): Promise<State> {
+): {
+	readonly state: State;
+	readonly event?: NameChangeEvent | ChatLineEvent;
+} {
 	const eventCounter = state.eventCounter + 1;
 	let oldUserNames = state.oldUserNames;
 
@@ -85,35 +83,38 @@ async function reduce(
 			};
 
 			const user = state.users[event.userId] || defaultUser;
-
-			if (event.propertyName === "name") {
-				const oldUser = state.users[event.userId];
-				await streams.nameChanges.next({
-					newName: event.value,
-					oldName: oldUser && oldUser.name,
-				});
-			}
+			const oldUser = state.users[event.userId];
 
 			return {
-				...state,
-				eventCounter,
-				users: {
-					...state.users,
-					[event.userId]: {
-						...user,
-						[event.propertyName]: event.value,
+				state: {
+					...state,
+					eventCounter,
+					users: {
+						...state.users,
+						[event.userId]: {
+							...user,
+							[event.propertyName]: event.value,
+						},
 					},
+					oldUserNames:
+						event.propertyName !== "name"
+							? oldUserNames
+							: {
+									...state.oldUserNames,
+									[event.userId]: [
+										...(state.oldUserNames[event.userId] || []),
+										user.name,
+									],
+							  },
 				},
-				oldUserNames:
-					event.propertyName !== "name"
-						? oldUserNames
-						: {
-								...state.oldUserNames,
-								[event.userId]: [
-									...(state.oldUserNames[event.userId] || []),
-									user.name,
-								],
-						  },
+				event:
+					event.propertyName === "name"
+						? {
+								type: "nameChange",
+								newName: event.value,
+								oldName: oldUser && oldUser.name,
+						  }
+						: undefined,
 			};
 		}
 
@@ -122,18 +123,21 @@ async function reduce(
 			if (!user) {
 				throw new Error("User does not exist: " + event.userId);
 			}
-			await streams.chatLines.next({
-				message: event.message,
-				name: user.name,
-				aka: state.oldUserNames[event.userId] || [],
-			});
 
-			return state;
+			return {
+				state,
+				event: {
+					type: "chatLine",
+					message: event.message,
+					name: user.name,
+					aka: state.oldUserNames[event.userId] || [],
+				},
+			};
 		}
 
 		default:
 			exhaustiveCheck(event);
-			return state;
+			return { state };
 	}
 }
 
@@ -176,21 +180,24 @@ const initialState: State = {
 };
 
 const db = new StreamDb(
-	asyncGenerator,
 	initialState,
+	asyncGenerator,
 	reduce,
-	{ nameChanges: undefined, chatLines: undefined },
 	persistenceStrategy,
 );
 
 (async () => {
-	for await (const nameChange of db.subscribe("nameChanges")) {
-		console.log(nameChange);
+	for await (const event of db.subscribe().events) {
+		if (event && event.type === "nameChange") {
+			console.log(event);
+		}
 	}
 })();
 
 (async () => {
-	for await (const chatLine of db.subscribe("chatLines")) {
-		console.log(chatLine);
+	for await (const event of db.subscribe().events) {
+		if (event && event.type === "chatLine") {
+			console.log(event);
+		}
 	}
 })();

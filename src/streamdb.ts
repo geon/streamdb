@@ -1,104 +1,43 @@
-import {
-	makeManualAsyncGeneratorAdapter,
-	AsyncTerminator,
-} from "./makeAsyncGeneratorAdapter";
 import { PubSub } from "./pubsub";
 
-export class StreamDb<TState, TEvent, TOutputStreamGenerators extends {}> {
-	private pubSubs!: {
-		// tslint:disable-next-line: readonly-array
-		[streamName in keyof TOutputStreamGenerators]: PubSub<
-			TOutputStreamGenerators[streamName]
-		>
-	};
+export class StreamDb<TState, TEventIn, TEventOut> {
+	private pubSub: PubSub<TEventOut>;
+	private currentState: TState;
 
 	constructor(
-		inputStream: AsyncIterableIterator<TEvent>,
 		initialState: TState,
+		events: AsyncIterableIterator<TEventIn>,
 		reduce: (
 			state: TState,
-			event: TEvent,
-			streams: {
-				[streamName in keyof TOutputStreamGenerators]: AsyncTerminator<
-					TOutputStreamGenerators[streamName]
-				>
-			},
-		) => Promise<TState>,
-		outputStreamGeneratorNamesInKeys: {
-			[streamName in keyof TOutputStreamGenerators]: undefined
+			event: TEventIn,
+		) => {
+			readonly state: TState;
+			readonly event?: TEventOut;
 		},
 		_persistenceStrategy: any,
 	) {
-		const reducerStreams = ((Array.from(
-			Object.keys(outputStreamGeneratorNamesInKeys),
-		) as unknown) as ReadonlyArray<
-			keyof typeof outputStreamGeneratorNamesInKeys
-		>).map(streamName => {
-			const {
-				asyncTerminator,
-				asyncGenerator,
-			} = makeManualAsyncGeneratorAdapter<
-				TOutputStreamGenerators[typeof streamName]
-			>();
+		this.currentState = initialState;
 
-			return {
-				streamName,
-				stream: asyncGenerator,
-				asyncTerminator,
-			};
-		});
-
-		const reducerTerminators = reducerStreams.reduce<
-			{
-				[streamName in keyof TOutputStreamGenerators]: AsyncTerminator<
-					TOutputStreamGenerators[streamName]
-				>
-			}
-		>(
-			(soFar, current) => {
-				soFar[current.streamName] = current.asyncTerminator;
-				return soFar;
-			},
-			{} as any,
+		this.pubSub = new PubSub(
+			(async function*(context: StreamDb<TState, TEventIn, TEventOut>) {
+				for await (const event of events) {
+					const { state: resultingState, event: resultingEvent } = reduce(
+						context.currentState,
+						event,
+					);
+					context.currentState = resultingState;
+					if (resultingEvent) {
+						yield resultingEvent;
+					}
+				}
+			})(this),
 		);
-
-		this.pubSubs = reducerStreams.reduce<
-			{
-				// tslint:disable-next-line: readonly-array
-				[streamName in keyof TOutputStreamGenerators]: PubSub<
-					TOutputStreamGenerators[streamName]
-				>
-			}
-		>(
-			(soFar, current) => ({
-				...soFar,
-				[current.streamName]: new PubSub(current.stream),
-			}),
-			{} as any,
-		);
-
-		(async () => {
-			try {
-				let state = initialState;
-				for await (const event of inputStream) {
-					state = await reduce(state, event, reducerTerminators);
-				}
-
-				for (const stream of reducerStreams) {
-					await stream.asyncTerminator.done();
-				}
-			} catch (error) {
-				console.log("Throwing inside streamdb reducer");
-				for (const stream of reducerStreams) {
-					await stream.asyncTerminator.throw(error);
-				}
-			}
-		})();
 	}
 
-	subscribe<TStreamName extends keyof TOutputStreamGenerators>(
-		streamName: TStreamName,
-	): AsyncIterableIterator<TOutputStreamGenerators[TStreamName]> {
-		return this.pubSubs[streamName].subscribe();
+	subscribe(): {
+		readonly currentState: TState;
+		readonly events: AsyncIterableIterator<TEventOut>;
+	} {
+		return { currentState: this.currentState, events: this.pubSub.subscribe() };
 	}
 }
