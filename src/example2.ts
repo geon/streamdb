@@ -3,7 +3,7 @@ import { makeAsyncGeneratorAdapter } from "./makeAsyncGeneratorAdapter";
 
 const asyncGenerator = makeAsyncGeneratorAdapter<number>(
 	async asyncTerminator => {
-		for (;;) {
+		for (let i = 0; i < 15; ++i) {
 			await asyncTerminator.next(1);
 			await new Promise(resolve => setTimeout(resolve, 200));
 		}
