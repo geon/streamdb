@@ -63,13 +63,7 @@ interface ChatLineEvent {
 	readonly aka: ReadonlyArray<string>;
 }
 
-function reduce(
-	state: State,
-	event: DbEvent,
-): {
-	readonly state: State;
-	readonly event?: NameChangeEvent | ChatLineEvent;
-} {
+function reduce(state: State, event: DbEvent): State {
 	const eventCounter = state.eventCounter + 1;
 	let oldUserNames = state.oldUserNames;
 
@@ -83,68 +77,34 @@ function reduce(
 			};
 
 			const user = state.users[event.userId] || defaultUser;
-			const oldUser = state.users[event.userId];
 
 			return {
-				state: {
-					...state,
-					eventCounter,
-					users: {
-						...state.users,
-						[event.userId]: {
-							...user,
-							[event.propertyName]: event.value,
-						},
+				...state,
+				eventCounter,
+				users: {
+					...state.users,
+					[event.userId]: {
+						...user,
+						[event.propertyName]: event.value,
 					},
-					oldUserNames:
-						event.propertyName !== "name"
-							? oldUserNames
-							: {
-									...state.oldUserNames,
-									[event.userId]: [
-										...(state.oldUserNames[event.userId] || []),
-										user.name,
-									],
-							  },
 				},
-				event:
-					event.propertyName === "name"
-						? {
-								type: "nameChange",
-								newName: event.value,
-								oldName: oldUser && oldUser.name,
-						  }
-						: undefined,
-			};
-		}
-
-		case "chat message": {
-			const user = state.users[event.userId];
-			if (!user) {
-				throw new Error("User does not exist: " + event.userId);
-			}
-
-			return {
-				state,
-				event: {
-					type: "chatLine",
-					message: event.message,
-					name: user.name,
-					aka: state.oldUserNames[event.userId] || [],
-				},
+				oldUserNames:
+					event.propertyName !== "name"
+						? oldUserNames
+						: {
+								...state.oldUserNames,
+								[event.userId]: [
+									...(state.oldUserNames[event.userId] || []),
+									user.name,
+								],
+						  },
 			};
 		}
 
 		default:
-			exhaustiveCheck(event);
-			return { state };
+			return state;
 	}
 }
-
-async function persistenceStrategy(
-	_operation: "save" | "load",
-	_state: State,
-) {}
 
 const asyncGenerator = makeAsyncGeneratorAdapter<DbEvent>(
 	async asyncTerminator => {
@@ -179,25 +139,56 @@ const initialState: State = {
 	oldUserNames: {},
 };
 
-const db = new StreamDb(
-	initialState,
-	asyncGenerator,
-	reduce,
-	persistenceStrategy,
-);
+const db = new StreamDb(initialState, asyncGenerator, reduce);
 
-(async () => {
-	for await (const event of db.subscribe().events) {
-		if (event && event.type === "nameChange") {
-			console.log(event);
+async function* derivedEvents(
+	events: AsyncIterableIterator<{
+		readonly state: State;
+		readonly event: DbEvent;
+		readonly oldState: State;
+	}>,
+): AsyncIterableIterator<NameChangeEvent | ChatLineEvent> {
+	for await (const { event, state, oldState } of events) {
+		switch (event.type) {
+			case "set user property": {
+				const oldUser = oldState.users[event.userId];
+
+				if (event.propertyName === "name") {
+					yield {
+						type: "nameChange",
+						newName: event.value,
+						oldName: oldUser && oldUser.name,
+					};
+				}
+
+				break;
+			}
+
+			case "chat message": {
+				const user = state.users[event.userId];
+				if (!user) {
+					throw new Error("User does not exist: " + event.userId);
+				}
+
+				yield {
+					type: "chatLine",
+					message: event.message,
+					name: user.name,
+					aka: state.oldUserNames[event.userId] || [],
+				};
+
+				break;
+			}
+
+			default:
+				exhaustiveCheck(event);
+				throw new Error("Unknown event");
 		}
 	}
-})();
+}
 
 (async () => {
-	for await (const event of db.subscribe().events) {
-		if (event && event.type === "chatLine") {
-			console.log(event);
-		}
+	for await (const event of derivedEvents(db.subscribe().events)) {
+		console.log(event);
 	}
 })();
