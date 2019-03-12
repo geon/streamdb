@@ -37,6 +37,7 @@ export function makeManualAsyncGeneratorAdapter<T>(): {
 
 	let done = false;
 	let error: Error | undefined;
+	let change = makePromiseAndCallbacks<void>();
 
 	const asyncTerminator: AsyncTerminator<T> = {
 		next: (data: T) => {
@@ -45,21 +46,22 @@ export function makeManualAsyncGeneratorAdapter<T>(): {
 				data,
 				handled,
 			});
+			change.resolve();
 			return handled.promise;
 		},
 		throw: (err: Error) => {
 			error = err;
+			change.resolve();
 		},
 		done: () => {
 			done = true;
+			change.resolve();
 		},
 	};
 
 	const asyncGenerator = (async function*() {
 		for (;;) {
 			// Wait for the terminator to send data.
-			// I previously used promises for that, but they created a
-			// memory leak. So busy-loop it is.
 			for (;;) {
 				if (queue.length) {
 					break;
@@ -70,7 +72,8 @@ export function makeManualAsyncGeneratorAdapter<T>(): {
 				if (done) {
 					return;
 				}
-				await new Promise(resolve => setTimeout(resolve, 0));
+				await change.promise;
+				change = makePromiseAndCallbacks();
 			}
 
 			try {
