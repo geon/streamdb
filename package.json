@@ -6,6 +6,7 @@
   "scripts": {
     "example": "ts-node src/example",
     "example2": "ts-node src/example2",
+    "example3": "ts-node src/example3",
     "test": "tape --require ts-node/register \"test/**/*.ts\" | tap-spec"
   },
   "author": "Victor Widell",
