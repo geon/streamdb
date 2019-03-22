@@ -54,18 +54,21 @@ const eventsPath = dirPath + "events.json";
 			} catch (error) {}
 
 			// Read any events not included in it.
-			let events: ReadonlyArray<number> = [];
-			try {
-				events = fs
-					// Read the whole file.
-					.readFileSync(eventsPath, { encoding: "utf8" })
-					// Split by line.
-					.split("\n")
-					// Cut off the last, empty line.
-					.slice(0, -1)
-					// Parse each line.
-					.map(line => JSON.parse(line));
-			} catch (error) {}
+			let events = (async function*(): AsyncIterableIterator<number> {
+				try {
+					for (const event of fs
+						// Read the whole file.
+						.readFileSync(eventsPath, { encoding: "utf8" })
+						// Split by line.
+						.split("\n")
+						// Cut off the last, empty line.
+						.slice(0, -1)
+						// Parse each line.
+						.map(line => JSON.parse(line))) {
+						yield event;
+					}
+				} catch (error) {}
+			})();
 
 			return {
 				state,

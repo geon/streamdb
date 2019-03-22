@@ -41,14 +41,14 @@ export async function makePersistentStreamDb<TState, TEvent>(
 	reduce: (state: TState, event: TEvent) => TState,
 	read: () => Promise<{
 		readonly state?: TState;
-		readonly events: ReadonlyArray<TEvent>;
+		readonly events: AsyncIterableIterator<TEvent>;
 	}>,
 	write: (state: TState, event: TEvent) => Promise<void>,
 ): Promise<StreamDb<TState, TEvent>> {
 	const loaded = await read();
 
 	let state = loaded.state || initialState;
-	for (const event of loaded.events) {
+	for await (const event of loaded.events) {
 		state = reduce(state, event);
 	}
 
