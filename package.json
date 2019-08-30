@@ -16,7 +16,7 @@
     "trailingComma": "all"
   },
   "devDependencies": {
-    "@types/node": "^10.0.4",
+    "@types/node": "^12.7.3",
     "@types/tape": "^4.2.32",
     "prettier": "^1.14.3",
     "tap-spec": "^5.0.0",
@@ -25,7 +25,7 @@
     "tslint": "^5.9.1",
     "tslint-immutable": "^4.5.4",
     "tslint-microsoft-contrib": "^5.0.3",
-    "typescript": "^3.1.1"
+    "typescript": "^3.6.2"
   },
   "dependencies": {}
 }
